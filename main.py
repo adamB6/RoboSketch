@@ -24,6 +24,7 @@ from math import sqrt, pi, degrees, radians
 
 def process_odom(data):
     s = f"{data.pose.pose.position.x}, {data.pose.pose.position.y}"
+    rospy.loginfo(s)
 
 
 def create_line(length):
