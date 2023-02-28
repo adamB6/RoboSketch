@@ -28,10 +28,10 @@ def process_odom(data):
 
 def create_line(length):
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
-    rate = rospy.Rate(10)
+    rate = rospy.Rate(25)
     vel = Twist()
-    vel.linear.x = .22
-    move_time = length/0.10  # time = distance / (Velocity)
+    vel.linear.x = .1
+    move_time = length/0.1  # time = distance / (Velocity)
     start = time.time()
     stop = time.time()
     while stop - start < move_time:
