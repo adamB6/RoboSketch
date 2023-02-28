@@ -31,7 +31,7 @@ def create_line(length):
     rate = rospy.Rate(10)
     vel = Twist()
     vel.linear.x = .22
-    move_time = length/0.11  # Kinematic equation. time = distance / (1/2 Velocity)
+    move_time = length/0.10  # Kinematic equation. time = distance / (Velocity)
     start = time.time()
     stop = time.time()
     while stop - start < move_time:
