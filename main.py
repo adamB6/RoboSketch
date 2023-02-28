@@ -32,11 +32,11 @@ def create_line(length):
     rate = rospy.Rate(25)
     vel = Twist()
     vel.linear.x = .1
-    move_time = length/0.1  # time = distance / (Velocity)
+    move_time = length/0.1  # time = distance/Velocity
+    rospy.loginfo(move_time)
     start = time.time()
     stop = time.time()
     while stop - start < move_time:
-        rospy.Subscriber("/odom", Odometry, process_odom)
         pub.publish(vel)
         stop = time.time()
     vel.linear.x = 0
@@ -46,10 +46,11 @@ def create_line(length):
 
 def main():
     rospy.init_node("sketchy_bot", anonymous=True)
+    rospy.Subscriber("/odom", Odometry, process_odom)
     try:
         create_line(float(sys.argv[1]))
-    except rospy.ROSInterruptException:
-        pass
+    except rospy.ROSInterruptException as E:
+        rospy.loginfo(E)
 
 
 if __name__ == '__main__':
