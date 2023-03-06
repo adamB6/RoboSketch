@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import rospy
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
@@ -36,13 +36,106 @@ class Forward(smach.State):
         rospy.loginfo(distance)
         twist = Twist()
         if distance < self._distance:
-            twist.linear.x = .25
+            twist.linear.x = .1
             transition = "move_fwd"
         else:
             twist.linear.x = 0
             self._initialPosition = None
             transition = "do_turn"
         self._pub.publish(twist)
+        self._rate.sleep()
+        return transition
+
+
+class Turn(smach.State):
+    def __init__(self, rate):
+        smach.State.__init__(self,
+                             outcomes=["start_fwd", "do_stop", "do_turn"])
+        self._rate = rate
+        self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+        self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
+        self._yaw = None
+        self._start_yaw = None
+
+    def process_odom(self, data):
+        pose = data.pose.pose
+
+        quaternion = (
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w)
+
+        roll, pitch, yaw = tf.transformations.euler_from_quaternion(quaternion)
+        self._yaw = yaw
+
+    def execute(self, ud):
+        if self._yaw is None:
+            rospy.loginfo("Waiting for yaw")
+            return "do_turn"
+
+        if self._start_yaw is None:
+            self._start_yaw = self._yaw
+
+        current_yaw = degrees(self._yaw)
+        goal_yaw = degrees(self._start_yaw + 90) % 180
+
+        twist = Twist()
+        if abs(current_yaw - goal_yaw) < 3:
+            twist.angular.z = 0
+            self._start_yaw = None
+            transition = "start_fwd"
+        else:
+            twist.angular.z = .1
+            transition = "do_turn"
+
+        self._pub.publish(twist)
+        self._rate.sleep()
+        return transition
+
+
+class Stop(smach.State):
+    def __init__(self):
+        smach.State.__init__(self,
+                             outcomes=["exit_sm"])
+
+    def execute(self, ud):
+        pass
+
+
+def main():
+    rospy.init_node("move_robot_smach", anonymous=True)
+
+    pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+    rate = rospy.Rate(20)
+    queue = []
+    coord_list = (0, 0, 0, 1, 0, 2, 0, 3)
+    for x in coord_list:
+        queue.append(x)
+
+
+    sm = smach.StateMachine(outcomes=["exit_sm"])
+
+    with sm:
+        smach.StateMachine.add("FORWARD", Forward(y_coords[1] - y_coords[0], rate),
+                               transitions={"move_fwd": "FORWARD",
+                                            "do_turn": "TURN",
+                                            "do_stop": "STOP"
+                                            })
+        smach.StateMachine.add("TURN", Turn(rate),
+                               transitions={"start_fwd": "FORWARD",
+                                            "do_turn": "TURN",
+                                            "do_stop": "STOP"
+                                            })
+        smach.StateMachine.add("STOP", Stop(),
+                               transitions={"exit_sm": "exit_sm"
+                                            })
+    sm.execute()
+
+
+if __name__ == '__main__':
+    main()
+
         self._rate.sleep()
         return transition
 
