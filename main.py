@@ -152,15 +152,6 @@ class Stop(smach.State):
     def execute(self, ud):
         pass
 
-'''
-def get_rotation(msg):
-    orientation_q = msg.pose.pose.orientation
-    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-
-    (roll, pitch, yaw) = tf.transformations.euler_from_quaternion(orientation_list)
-    print(f'yaw= {yaw}')
-    return yaw
-'''
 def main():
     rospy.init_node("move_robot_smach", anonymous=True)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
