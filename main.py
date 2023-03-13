@@ -76,11 +76,12 @@ class Forward(smach.State):
 
 
 class Turn(smach.State):
-    def __init__(self, coord_list, rate):
+    def __init__(self, coord_list, rate, scale_int):
         smach.State.__init__(self,
                              outcomes=["start_fwd", "do_stop", "do_turn"])
         self._coord_list = coord_list
         self._rate = rate
+        self._scale = scale_int
         self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
         self._yaw = None
@@ -90,10 +91,10 @@ class Turn(smach.State):
         global index
 
         print(f"index = {index}")
-        x1 = self._coord_list[index][0]
-        x2 = self._coord_list[index + 1][0]
-        y1 = self._coord_list[index][1]
-        y2 = self._coord_list[index + 1][1]
+        x1 = self._coord_list[index][0] * self._scale
+        x2 = self._coord_list[index + 1][0] * self._scale
+        y1 = self._coord_list[index][1] * self._scale
+        y2 = self._coord_list[index + 1][1] * self._scale
 
         delta_y = y2 - y1
         delta_x = x2 - x1
@@ -140,12 +141,18 @@ class Turn(smach.State):
         print(f'current yaw = {current_yaw}')
 
         twist = Twist()
+
+        # If within .005 radians, stop
         if abs(goal_yaw - current_yaw) < .005:
             twist.angular.z = 0
             self._start_yaw = None
             transition = "start_fwd"
+        # Turn until abs(goal_yaw - current_yaw) = 0
+        elif abs(goal_yaw - current_yaw) > 3.14:
+            twist.angular.z = 1 * (abs(goal_yaw - current_yaw) - 3.14)
+            transition = "do_turn"
         else:
-            twist.angular.z = 2 * abs(goal_yaw - current_yaw)
+            twist.angular.z = 2 * (goal_yaw - current_yaw)
             transition = "do_turn"
 
         self._pub.publish(twist)
@@ -169,14 +176,14 @@ def main():
     rate = rospy.Rate(10)
 
     # Square
-    rectangle_list = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
+    square_list = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
 
     ### Used for changing scale of coordinates
-    scale_int = 4
+    scale_int = 10
     new_coord_list = []
-    for x in rectangle_list:
-        temp = x[0] / 4
-        temp2 = x[1] / 4
+    for x in square_list:
+        temp = x[0] / scale_int
+        temp2 = x[1] / scale_int
         temp_tuple = (temp, temp2)
         new_coord_list.append(temp_tuple)
     print(f'test {new_coord_list}')
@@ -187,12 +194,12 @@ def main():
     sm = smach.StateMachine(outcomes=["exit_sm"])
 
     with sm:
-        smach.StateMachine.add("FORWARD", Forward(triangle_list, rate),
+        smach.StateMachine.add("FORWARD", Forward(new_coord_list, rate),
                                transitions={"move_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
                                             })
-        smach.StateMachine.add("TURN", Turn(triangle_list, rate),
+        smach.StateMachine.add("TURN", Turn(new_coord_list, rate, scale_int),
                                transitions={"start_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
