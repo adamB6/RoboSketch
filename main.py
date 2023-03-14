@@ -110,11 +110,6 @@ class Turn(smach.State):
         else:
             turn_distance = math.atan2(delta_y, delta_x)
 
-        if turn_distance + self._init_yaw > pi:
-            turn_distance = (turn_distance + self._init_yaw) - (2 * pi)
-        elif turn_distance + self._init_yaw < -pi:
-            turn_distance = (turn_distance + self._init_yaw) + (2 * pi)
-
         #print(f'************************* {turn_distance}')
         return turn_distance
 
@@ -135,6 +130,8 @@ class Turn(smach.State):
 
     def execute(self, ud):
         global index
+        pi = 3.14159
+
 
         if index + 1 >= len(self._coord_list):
             return 'do_stop'
@@ -145,20 +142,35 @@ class Turn(smach.State):
         if self._start_yaw is None:
             self._start_yaw = self._yaw
 
-        current_yaw = self._yaw
+        if self._init_yaw > 0:
+            current_yaw = self._yaw - self._init_yaw
+        elif self._init_yaw < 0:
+            current_yaw = self._yaw + self._init_yaw
+
         goal_yaw = self.turn_distance()
-        print(f'goal yaw= {goal_yaw}', end=' ')
-        print(f'current yaw = {current_yaw}')
 
         twist = Twist()
 
+        if current_yaw < -pi:
+            current_yaw = current_yaw + (pi*2)
+        elif current_yaw > pi:
+            current_yaw = current_yaw - (pi*2)
+
+        print(f'goal yaw= {goal_yaw}', end=' ')
+        print(f'current yaw = {current_yaw}')
+        
         # If within .005 radians, stop
-        if abs(goal_yaw - current_yaw) < .005:
+        if -.05 < (goal_yaw - current_yaw) < .05:
             twist.angular.z = 0
             self._start_yaw = None
             transition = "start_fwd"
+
+
         else:
-            twist.angular.z = 1 * (goal_yaw - current_yaw)
+            twist.angular.z = .5 * (goal_yaw - current_yaw)
+            if twist.angular.z < .05:
+                twist.angular.z = max(twist.angular.z, .05)
+
             transition = "do_turn"
 
 
@@ -191,7 +203,7 @@ def main():
     # Used for changing scale of coordinates
     scale_int =4
     new_coord_list = []
-    for x in square_list:
+    for x in triangle_list:
         temp = x[0] / scale_int
         temp2 = x[1] / scale_int
         temp_tuple = (temp, temp2)
@@ -203,12 +215,12 @@ def main():
     sm = smach.StateMachine(outcomes=["exit_sm"])
 
     with sm:
-        smach.StateMachine.add("FORWARD", Forward(triangle_list, rate),
+        smach.StateMachine.add("FORWARD", Forward(new_coord_list, rate),
                                transitions={"move_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
                                             })
-        smach.StateMachine.add("TURN", Turn(triangle_list, rate, scale_int),
+        smach.StateMachine.add("TURN", Turn(new_coord_list, rate, scale_int),
                                transitions={"start_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
