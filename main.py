@@ -31,7 +31,7 @@ class Forward(smach.State):
         y2 = self._coord_list[index + 1][1]
 
         delta_y = abs(y2 - y1)
-        print(f'delta y = {delta_y}')
+        print(f'delta y = {delta_y}', end = ' ')
         delta_x = abs(x2 - x1)
         print(f'delta x = {delta_x}')
 
@@ -84,11 +84,13 @@ class Turn(smach.State):
         self._scale = scale_int
         self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
+        self._init_yaw = None
         self._yaw = None
         self._start_yaw = None
 
     def turn_distance(self):
         global index
+        pi = 3.14159
 
         print(f"index = {index}")
         x1 = self._coord_list[index][0] * self._scale
@@ -99,7 +101,7 @@ class Turn(smach.State):
         delta_y = y2 - y1
         delta_x = x2 - x1
 
-        print(f'x2 = {x2}, x1 = {x1}')
+        #print(f'x2 = {x2}, x1 = {x1}')
 
         if delta_y == 0:
             turn_distance = math.acos(delta_x)
@@ -108,7 +110,12 @@ class Turn(smach.State):
         else:
             turn_distance = math.atan2(delta_y, delta_x)
 
-        print(f'************************* {turn_distance}')
+        if turn_distance + self._init_yaw > pi:
+            turn_distance = (turn_distance + self._init_yaw) - (2 * pi)
+        elif turn_distance + self._init_yaw < -pi:
+            turn_distance = (turn_distance + self._init_yaw) + (2 * pi)
+
+        #print(f'************************* {turn_distance}')
         return turn_distance
 
     def process_odom(self, data):
@@ -122,6 +129,9 @@ class Turn(smach.State):
 
         roll, pitch, yaw = tf.transformations.euler_from_quaternion(quaternion)
         self._yaw = yaw
+
+        if self._init_yaw is None:
+            self._init_yaw = yaw
 
     def execute(self, ud):
         global index
@@ -137,7 +147,7 @@ class Turn(smach.State):
 
         current_yaw = self._yaw
         goal_yaw = self.turn_distance()
-        print(f'goal yaw= {goal_yaw}')
+        print(f'goal yaw= {goal_yaw}', end=' ')
         print(f'current yaw = {current_yaw}')
 
         twist = Twist()
@@ -147,13 +157,10 @@ class Turn(smach.State):
             twist.angular.z = 0
             self._start_yaw = None
             transition = "start_fwd"
-        # Turn until abs(goal_yaw - current_yaw) = 0
-        elif abs(goal_yaw - current_yaw) > 3.14:
-            twist.angular.z = 1 * (abs(goal_yaw - current_yaw) - 3.14)
-            transition = "do_turn"
         else:
-            twist.angular.z = 2 * (goal_yaw - current_yaw)
+            twist.angular.z = 1 * (goal_yaw - current_yaw)
             transition = "do_turn"
+
 
         self._pub.publish(twist)
         self._rate.sleep()
@@ -169,37 +176,39 @@ class Stop(smach.State):
         rospy.signal_shutdown("all done")
         return "exit_sm"
 
-
 def main():
     rospy.init_node("move_robot_smach", anonymous=True)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
-    rate = rospy.Rate(10)
+
+    rate = rospy.Rate(2)
 
     # Square
     square_list = [(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]
 
-    ### Used for changing scale of coordinates
-    scale_int = 10
+    # Triangle
+    triangle_list = [(0, 0), (1, 0), (.5, .5), (0, 0)]
+
+    # Used for changing scale of coordinates
+    scale_int =4
     new_coord_list = []
     for x in square_list:
         temp = x[0] / scale_int
         temp2 = x[1] / scale_int
         temp_tuple = (temp, temp2)
         new_coord_list.append(temp_tuple)
-    print(f'test {new_coord_list}')
 
-    # Triangle
-    triangle_list = [(0, 0), (1, 0), (.5, .5), (0, 0)]
+    # print(f'New Coord List = {new_coord_list}')
+
 
     sm = smach.StateMachine(outcomes=["exit_sm"])
 
     with sm:
-        smach.StateMachine.add("FORWARD", Forward(new_coord_list, rate),
+        smach.StateMachine.add("FORWARD", Forward(triangle_list, rate),
                                transitions={"move_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
                                             })
-        smach.StateMachine.add("TURN", Turn(new_coord_list, rate, scale_int),
+        smach.StateMachine.add("TURN", Turn(triangle_list, rate, scale_int),
                                transitions={"start_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
