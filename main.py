@@ -88,7 +88,7 @@ class Turn(smach.State):
         self._yaw = None
         self._start_yaw = None
 
-    def turn_distance(self):
+    def desired_yaw(self):
         global index
         pi = 3.14159
 
@@ -104,14 +104,15 @@ class Turn(smach.State):
         #print(f'x2 = {x2}, x1 = {x1}')
 
         if delta_y == 0:
-            turn_distance = math.acos(delta_x)
+            desired_yaw = math.acos(delta_x)
         elif delta_x == 0:
-            turn_distance = math.asin(delta_y)
+            desired_yaw = math.asin(delta_y)
         else:
-            turn_distance = math.atan2(delta_y, delta_x)
+            desired_yaw = math.atan2(delta_y, delta_x)
 
         #print(f'************************* {turn_distance}')
-        return turn_distance
+
+        return desired_yaw
 
     def process_odom(self, data):
         pose = data.pose.pose
@@ -147,7 +148,7 @@ class Turn(smach.State):
         elif self._init_yaw < 0:
             current_yaw = self._yaw + self._init_yaw
 
-        goal_yaw = self.turn_distance()
+        goal_yaw = self.desired_yaw()
 
         twist = Twist()
 
@@ -167,9 +168,10 @@ class Turn(smach.State):
 
 
         else:
-            twist.angular.z = .5 * (goal_yaw - current_yaw)
-            if twist.angular.z < .05:
-                twist.angular.z = max(twist.angular.z, .05)
+            if goal_yaw < 0:
+                twist.angular.z = .5 * (goal_yaw - current_yaw) - 0.05
+            else:
+                twist.angular.z = .5 * (goal_yaw - current_yaw) + 0.05
 
             transition = "do_turn"
 
@@ -203,7 +205,7 @@ def main():
     # Used for changing scale of coordinates
     scale_int =4
     new_coord_list = []
-    for x in triangle_list:
+    for x in square_list:
         temp = x[0] / scale_int
         temp2 = x[1] / scale_int
         temp_tuple = (temp, temp2)
