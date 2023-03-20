@@ -15,7 +15,7 @@ index = 0
 class Forward(smach.State):
     def __init__(self, coord_list, rate):
         smach.State.__init__(self,
-                             outcomes=["move_fwd", "do_turn", "do_stop"])
+                             outcomes=["move_fwd", "do_turn", "move_back", "do_stop"])
         self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
         self._coord_list = coord_list
@@ -31,7 +31,7 @@ class Forward(smach.State):
         y2 = self._coord_list[index + 1][1]
 
         delta_y = abs(y2 - y1)
-        print(f'delta y = {delta_y}', end = ' ')
+        print(f'delta y = {delta_y}', end=' ')
         delta_x = abs(x2 - x1)
         print(f'delta x = {delta_x}')
 
@@ -66,10 +66,49 @@ class Forward(smach.State):
             twist.linear.x = .1
             transition = "move_fwd"
         else:
+            self._initialPosition = position
+            move_distance = 0.065
+            distance = sqrt(pow(position[0] + 0.065 - self._initialPosition[0], 2) + pow(position[1] - self._initialPosition[1], 2))
+            if 
             twist.linear.x = 0
             self._initialPosition = None
             index += 1
             transition = "do_turn"
+        self._pub.publish(twist)
+        self._rate.sleep()
+        return transition
+
+
+class Back(smach.State):
+    def __init__(self, distance, rate):
+        smach.State.__init__(self, outcomes=["move_back", "start_fwd", "do_stop"])
+        self._rate = rate
+        self._distance = distance
+
+    def process_odom(self, data):
+        self._position = (data.pose.pose.position.x, data.pose.pose.position.y)
+
+    def execute(self, ud):
+        if self._position is None:
+            rospy.loginfo("Waiting for position")
+            return 'move_back'
+
+        position = tuple(self._position)
+
+        rospy.loginfo(self._position)
+
+        distance = sqrt(pow(position[0] - self._initialPosition[0], 2) + pow(position[1] - self._initialPosition[1], 2))
+        rospy.loginfo(distance)
+        twist = Twist()
+        print(f'distance = {distance}')
+        print(f'self.move_distance() = {self.move_distance()}')
+
+        if distance < self._distance:
+            twist.linear.x = -.05
+            transition = "move_back"
+        else:
+            twist.linear.x = 0
+            transition = "move_fwd"
         self._pub.publish(twist)
         self._rate.sleep()
         return transition
@@ -88,7 +127,7 @@ class Turn(smach.State):
         self._yaw = None
         self._start_yaw = None
 
-    def desired_yaw(self):
+    def get_target_yaw(self):
         global index
         pi = 3.14159
 
@@ -101,7 +140,7 @@ class Turn(smach.State):
         delta_y = y2 - y1
         delta_x = x2 - x1
 
-        #print(f'x2 = {x2}, x1 = {x1}')
+        # print(f'x2 = {x2}, x1 = {x1}')
 
         if delta_y == 0:
             desired_yaw = math.acos(delta_x)
@@ -110,7 +149,7 @@ class Turn(smach.State):
         else:
             desired_yaw = math.atan2(delta_y, delta_x)
 
-        #print(f'************************* {turn_distance}')
+        # print(f'************************* {turn_distance}')
 
         return desired_yaw
 
@@ -133,7 +172,6 @@ class Turn(smach.State):
         global index
         pi = 3.14159
 
-
         if index + 1 >= len(self._coord_list):
             return 'do_stop'
         if self._yaw is None:
@@ -148,33 +186,29 @@ class Turn(smach.State):
         elif self._init_yaw < 0:
             current_yaw = self._yaw + self._init_yaw
 
-        goal_yaw = self.desired_yaw()
+        goal_yaw = self.get_target_yaw()
 
         twist = Twist()
 
         if current_yaw < -pi:
-            current_yaw = current_yaw + (pi*2)
+            current_yaw = current_yaw + (pi * 2)
         elif current_yaw > pi:
-            current_yaw = current_yaw - (pi*2)
+            current_yaw = current_yaw - (pi * 2)
 
         print(f'goal yaw= {goal_yaw}', end=' ')
         print(f'current yaw = {current_yaw}')
-        
+
         # If within .005 radians, stop
         if -.05 < (goal_yaw - current_yaw) < .05:
             twist.angular.z = 0
             self._start_yaw = None
-            transition = "start_fwd"
-
-
+            transition = "move_back"
         else:
             if goal_yaw < 0:
                 twist.angular.z = .5 * (goal_yaw - current_yaw) - 0.05
             else:
                 twist.angular.z = .5 * (goal_yaw - current_yaw) + 0.05
-
             transition = "do_turn"
-
 
         self._pub.publish(twist)
         self._rate.sleep()
@@ -190,6 +224,7 @@ class Stop(smach.State):
         rospy.signal_shutdown("all done")
         return "exit_sm"
 
+
 def main():
     rospy.init_node("move_robot_smach", anonymous=True)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
@@ -203,16 +238,15 @@ def main():
     triangle_list = [(0, 0), (1, 0), (.5, .5), (0, 0)]
 
     # Used for changing scale of coordinates
-    scale_int =4
+    scale_int = 4
     new_coord_list = []
-    for x in square_list:
+    for x in triangle_list:
         temp = x[0] / scale_int
         temp2 = x[1] / scale_int
         temp_tuple = (temp, temp2)
         new_coord_list.append(temp_tuple)
 
     # print(f'New Coord List = {new_coord_list}')
-
 
     sm = smach.StateMachine(outcomes=["exit_sm"])
 
@@ -225,7 +259,12 @@ def main():
         smach.StateMachine.add("TURN", Turn(new_coord_list, rate, scale_int),
                                transitions={"start_fwd": "FORWARD",
                                             "do_turn": "TURN",
-                                            "do_stop": "STOP"
+                                            "do_stop": "STOP",
+                                            "move_back": "BACKWARD"
+                                            })
+        smach.StateMachine.add("BACKWARD", Back(.065, rate),
+                               transitions={"move_back": "BACKWARD",
+                                            "move_fwd": "FORWARD"
                                             })
         smach.StateMachine.add("STOP", Stop(),
                                transitions={"exit_sm": "exit_sm"
