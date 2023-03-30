@@ -212,7 +212,7 @@ class Turn(smach.State):
 
         twist = Twist()
 
-        # Ensure that yaw is within -190 and 190
+        # Ensure that yaw is within -180 and 180
         if current_yaw < -pi:
             current_yaw = current_yaw + (pi * 2)
         elif current_yaw > pi:
