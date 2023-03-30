@@ -221,7 +221,7 @@ class Turn(smach.State):
         print(f'goal yaw= {goal_yaw}', end=' ')
         print(f'current yaw = {current_yaw}')
 
-        # If within .05 radians, stop
+        # If within plus or minus .005 radians, stop
         if -.005 < (goal_yaw - current_yaw) < .005:
             twist.angular.z = 0
             self._start_yaw = None
