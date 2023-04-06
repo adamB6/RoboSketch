@@ -221,8 +221,8 @@ class Turn(smach.State):
         print(f'goal yaw= {goal_yaw}', end=' ')
         print(f'current yaw = {current_yaw}')
 
-        # If within plus or minus .005 radians, stop
-        if -.005 < (goal_yaw - current_yaw) < .005:
+        # If within .05 radians, stop
+        if abs(goal_yaw - current_yaw) < .05:
             twist.angular.z = 0
             self._start_yaw = None
             if index == 0:
@@ -230,7 +230,7 @@ class Turn(smach.State):
             transition = "move_back"
 
         else:
-            twist.angular.z = max(abs(.5 * (goal_yaw - current_yaw)), .025) 
+            twist.angular.z = max(abs(.25 * (goal_yaw - current_yaw)), .25) 
             transition = "do_turn"
 
         self._pub.publish(twist)
@@ -262,7 +262,7 @@ def main():
     triangle_list = [(0, 0), (1, 0), (.5, .5), (0, 0)]
 
     # Straight Line
-    straight_line_read = open("StarTest.txt", "r")
+    straight_line_read = open("CircleTest.txt", "r")
     straight_line = eval(straight_line_read.read())
 
     # Convert origin from top left (image origin) to standard bottom left
