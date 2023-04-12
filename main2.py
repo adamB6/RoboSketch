@@ -11,6 +11,122 @@ import numpy as np
 
 index = 0
 
+class Turn(smach.State):
+    def __init__(self, coord_list, rate):
+        smach.State.__init__(self,
+                             outcomes=["move_fwd", "move_back", "do_stop", "do_turn"])
+        self._coord_list = coord_list
+        self._rate = rate
+        self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
+        self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
+        self._init_yaw = None
+        self._yaw = None
+        self._start_yaw = None
+        self._yaw_difference = None
+
+    def get_target_yaw(self):
+        global index
+        pi = 3.14159
+
+        print(f"index = {index}")
+        x1 = self._coord_list[index][0]
+        x2 = self._coord_list[index + 1][0]
+        y1 = self._coord_list[index][1]
+        y2 = self._coord_list[index + 1][1]
+
+        delta_y = y2 - y1
+        delta_x = x2 - x1
+
+        print(f'x2 = {x2}, x1 = {x1}')
+        print(f'y2 = {y2}, y1 = {y1}')
+
+
+        if delta_y == 0:
+            desired_yaw = math.acos(delta_x)
+        elif delta_x == 0:
+            desired_yaw = math.asin(delta_y)
+        else:
+            desired_yaw = math.atan2(delta_y, delta_x)
+
+        # print(f'************************* {turn_distance}')
+
+        return desired_yaw
+
+    def process_odom(self, data):
+        pose = data.pose.pose
+
+        quaternion = (
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w)
+
+        roll, pitch, yaw = tf.transformations.euler_from_quaternion(quaternion)
+        self._yaw = yaw
+
+        if self._init_yaw is None:
+            self._init_yaw = yaw
+
+    def execute(self, ud):
+        global index
+        pi = 3.14159
+
+        if index + 1 >= len(self._coord_list):
+            return 'do_stop'
+        
+        if self._yaw is None:
+            rospy.loginfo("Waiting for yaw")
+            return "do_turn"
+
+        if self._start_yaw is None:
+            self._start_yaw = self._yaw
+
+        if self._init_yaw > 0:
+            current_yaw = self._yaw - self._init_yaw
+        elif self._init_yaw < 0:
+            current_yaw = self._yaw + self._init_yaw
+
+        target_yaw = self.get_target_yaw()
+
+        twist = Twist()
+
+        # Ensure that yaw is within -180 and 180
+        if current_yaw < -pi:
+            current_yaw = current_yaw + (pi * 2)
+        elif current_yaw > pi:
+            current_yaw = current_yaw - (pi * 2)
+
+        print(f'goal yaw= {target_yaw}', end=' ')
+        print(f'current yaw = {current_yaw}')
+
+        self._yaw_difference = current_yaw - target_yaw
+        if self._yaw_difference > pi:
+            self._yaw_difference = self._yaw_difference - (pi * 2)
+        if self._yaw_difference < -pi:
+            self._yaw_difference = self._yaw_difference + (pi * 2)
+
+        print(f'#########################################{self._yaw_difference}')
+
+        # If within .05 radians, stop
+        if abs(target_yaw - current_yaw) < .005:
+            twist.angular.z = 0
+            self._start_yaw = None
+            self._yaw_difference = None
+            if index == 0:
+                return "move_fwd"
+            transition = "move_back"
+        
+        else:
+            if self._yaw_difference < 0:
+                twist.angular.z = max(abs(.15 * (self._yaw_difference)), .15) 
+            else:
+                twist.angular.z = -max(abs(.15 * (self._yaw_difference)), .15) 
+            transition = "do_turn"
+
+        self._pub.publish(twist)
+        self._rate.sleep()
+        return transition
+
 
 class Forward(smach.State):
     def __init__(self, coord_list, rate):
@@ -62,14 +178,14 @@ class Forward(smach.State):
         distance = sqrt(pow(position[0] - self._initialPosition[0], 2) + pow(position[1] - self._initialPosition[1], 2))
         rospy.loginfo(distance)
         twist = Twist()
-        # print(f'distance = {distance}')
-        # print(f'self.move_distance() = {self.move_distance()}')
+        #print(f'distance = {distance}')
+        #print(f'self.move_distance() = {self.move_distance()}')
 
         # Move the robot according to the coordinates
         if distance < self.move_distance():
             twist.linear.x = .1
             transition = "move_fwd"
-        else:
+        else:            
             # After move between coordinates, pick up pen and move center of robot over final coordinate
             # initialPosition2 is used to store the robots position after moving distance between points
 
@@ -77,10 +193,9 @@ class Forward(smach.State):
             if self._initialPosition2 is None:
                 self._initialPosition2 = position
             move_distance = 0.04
-            distance = sqrt(
-                pow(position[0] - self._initialPosition2[0], 2) + pow(position[1] - self._initialPosition2[1], 2))
+            distance = sqrt(pow(position[0] - self._initialPosition2[0], 2) + pow(position[1] - self._initialPosition2[1], 2))
             print(f'*********move_distance = {move_distance}, distance = {distance}')
-            if distance < move_distance:
+            if distance < move_distance:               
                 twist.linear.x = 0.005
                 transition = "move_fwd"
             else:
@@ -123,7 +238,7 @@ class Back(smach.State):
 
         print(f'**************************distance = {distance}')
         if distance < self._distance:
-            twist.linear.x = -.005
+            twist.linear.x = -max(abs(distance - self._distance), .005)
             transition = "move_back"
         else:
             twist.linear.x = 0
@@ -134,112 +249,6 @@ class Back(smach.State):
         self._rate.sleep()
         return transition
 
-
-class Turn(smach.State):
-    def __init__(self, coord_list, rate):
-        smach.State.__init__(self,
-                             outcomes=["move_fwd", "move_back", "do_stop", "do_turn"])
-        self._coord_list = coord_list
-        self._rate = rate
-        self._pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
-        self._sub = rospy.Subscriber("/odom", Odometry, self.process_odom)
-        self._init_yaw = None
-        self._yaw = None
-        self._start_yaw = None
-        self._firstDistance = None
-
-    def get_target_yaw(self):
-        global index
-        pi = 3.14159
-
-        print(f"index = {index}")
-        x1 = self._coord_list[index][0]
-        x2 = self._coord_list[index + 1][0]
-        y1 = self._coord_list[index][1]
-        y2 = self._coord_list[index + 1][1]
-
-        delta_y = y2 - y1
-        delta_x = x2 - x1
-
-        print(f'x2 = {x2}, x1 = {x1}')
-        print(f'y2 = {y2}, y1 = {y1}')
-
-        if delta_y == 0:
-            desired_yaw = math.acos(delta_x)
-        elif delta_x == 0:
-            desired_yaw = math.asin(delta_y)
-        else:
-            desired_yaw = math.atan2(delta_y, delta_x)
-
-        # print(f'************************* {turn_distance}')
-
-        return desired_yaw
-
-    def process_odom(self, data):
-        pose = data.pose.pose
-
-        quaternion = (
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w)
-
-        roll, pitch, yaw = tf.transformations.euler_from_quaternion(quaternion)
-        self._yaw = yaw
-
-        if self._init_yaw is None:
-            self._init_yaw = yaw
-
-    def execute(self, ud):
-        global index
-        pi = 3.14159
-
-        if index + 1 >= len(self._coord_list):
-            return 'do_stop'
-
-        if self._yaw is None:
-            rospy.loginfo("Waiting for yaw")
-            return "do_turn"
-
-        # Get initial "error" in Odom heading
-        if self._start_yaw is None:
-            self._start_yaw = self._yaw
-
-        # Remove initial error from Odom Heading
-        if self._init_yaw > 0:
-            current_yaw = self._yaw - self._init_yaw
-        elif self._init_yaw < 0:
-            current_yaw = self._yaw + self._init_yaw
-
-        target_yaw = self.get_target_yaw()
-
-        twist = Twist()
-
-        if self._firstDistance is None:
-            self._firstDistance = current_yaw - target_yaw
-
-        print(f'goal yaw= {target_yaw}        #################         current yaw= {current_yaw}' )
-        print(self._firstDistance)
-
-        # If within .05 radians, stop
-        if abs(target_yaw - current_yaw) < .05:
-            twist.angular.z = 0
-            self._start_yaw = None
-            self._firstDistance = None
-            if index == 0:
-                return "move_fwd"
-            transition = "move_back"
-
-        else:
-            if self._firstDistance > 0:
-                twist.angular.z = -max(abs(.25 * (current_yaw - target_yaw)), .25)
-            else:
-                twist.angular.z = max(abs(.25 * (current_yaw - target_yaw)), .25)
-            transition = "do_turn"
-
-        self._pub.publish(twist)
-        self._rate.sleep()
-        return transition
 
 
 class Stop(smach.State):
@@ -256,7 +265,7 @@ def main():
     rospy.init_node("move_robot_smach", anonymous=True)
     pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
 
-    rate = rospy.Rate(10)
+    rate = rospy.Rate(20)
     img_height_width = 800
 
     # Square
@@ -266,34 +275,35 @@ def main():
     triangle_list = [(0, 0), (1, 0), (.5, .5), (0, 0)]
 
     # Straight Line
-    straight_line_read = open("StarTest.txt", "r")
+    straight_line_read = open("SquareTest.txt", "r")
     straight_line = eval(straight_line_read.read())
 
     # Convert origin from top left (image origin) to standard bottom left
     new_straight_line = []
+    scale_value = 3
     for x in straight_line:
-        temp = x[0] / (800 * 4)
-        temp2 = (img_height_width - x[1] + 1) / (800 * 4)
+        temp = x[0] / (800*scale_value)
+        temp2 = (img_height_width - x[1] + 1) / (800*scale_value)
         temp_tuple = (temp, temp2)
         new_straight_line.append(temp_tuple)
 
-    new_straight_line.insert(0, (0, 0))
+    new_straight_line.insert(0, (0,0))
 
     sm = smach.StateMachine(outcomes=["exit_sm"])
 
     with sm:
         smach.StateMachine.add("TURN", Turn(new_straight_line, rate),
-                               transitions={"move_fwd": "FORWARD",
-                                            "do_turn": "TURN",
-                                            "do_stop": "STOP",
-                                            "move_back": "BACKWARD"
+                                transitions={"move_fwd": "FORWARD",
+                                             "do_turn": "TURN",
+                                             "do_stop": "STOP",
+                                             "move_back": "BACKWARD"
                                             })
         smach.StateMachine.add("FORWARD", Forward(new_straight_line, rate),
                                transitions={"move_fwd": "FORWARD",
                                             "do_turn": "TURN",
                                             "do_stop": "STOP"
                                             })
-        smach.StateMachine.add("BACKWARD", Back(.0345, rate),
+        smach.StateMachine.add("BACKWARD", Back(.038, rate),
                                transitions={"move_back": "BACKWARD",
                                             "move_fwd": "FORWARD"
                                             })
@@ -305,4 +315,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
